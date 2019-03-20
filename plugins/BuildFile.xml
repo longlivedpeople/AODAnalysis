@@ -18,4 +18,5 @@
 <use name="RecoVertex/VertexPrimitives"/>
 <use name="RecoVertex/AdaptiveVertexFit"/>
 <use name="RecoVertex/TrimmedVertexFit"/>
+<use name="RecoVertex/VertexTools"/>
 <flags EDM_PLUGIN="1"/>

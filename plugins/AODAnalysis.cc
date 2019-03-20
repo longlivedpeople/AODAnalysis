@@ -70,6 +70,8 @@
 
 
 #include "DataFormats/HepMCCandidate/interface/GenParticle.h"
+#include "RecoVertex/VertexTools/interface/GeometricAnnealing.h"
+
 
 
 //#include "TrackingTools/TransientTrack/interface/TransientTrack.h"
@@ -251,6 +253,17 @@ void AODAnalysis::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetu
    BeamSpot_BeamWidthY = beamSpotObject.BeamWidthY();
 
 
+   ////////////////////////////////// GENERAL TRACKS //////////////////////////////////
+
+
+   /*
+   for (int i = 0; i < 10; i++){
+
+   const reco::Track &track = (*generalTracks)[i]; 
+
+   }
+   */
+
 
    ////////////////////////////// PRIMARY VERTEX FEATURES //////////////////////////////
 
@@ -262,55 +275,53 @@ void AODAnalysis::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetu
    PV_vy = vertex->position().y();
    PV_vz = vertex->position().z();
 
+
    PV_nTracks = vertex->nTracks(); // to check
    PV_tracksSize= vertex->tracksSize(); // to check
 
-   //const reco::Vertex &thevertex = (*primaryvertices)[0];
-
-   //std::cout << vertex->hasRefittedTracks() << std::endl;
  
    /////////////////////////////////////////////////////////////////////////////////////
    ////////////////////////////////// VERTEX REFITTING /////////////////////////////////
    /////////////////////////////////////////////////////////////////////////////////////
 
- 
+
+
+   // Define a transient track builder: 
    edm::ESHandle<TransientTrackBuilder> theTransientTrackBuilder;
    iSetup.get<TransientTrackRecord>().get("TransientTrackBuilder",theTransientTrackBuilder);
 
+   // std vector with the tracks participating in the refitting
    std::vector<reco::TransientTrack> refit_tracks; // tracks for refitting
 
-   PV_fittingtracks = 0;
  
-   // Loop over general tracks
+   // Loop over the PV tracks:
    for (auto tv=vertex->tracks_begin(); tv!=vertex->tracks_end(); tv++){
 
+       // Transient track definition:
        const reco::TrackRef trackRef = tv->castTo<reco::TrackRef>();
-
-
-       PV_fittingtracks++;
-
        reco::TransientTrack  transientTrack = theTransientTrackBuilder->build(trackRef); 
- 
        transientTrack.setBeamSpot(beamSpotObject);
-       refit_tracks.push_back(transientTrack);
+  
+       // HERE: should be a selection of tracks (ignore those matched to leptons)
 
+       // Append the transient track:
+       refit_tracks.push_back(transientTrack);
 
    }
 
 
 
-   // Reffit the vertex
-
+   // Reffit the vertex with the selected tracks stored in refit_tracks
    if (refit_tracks.size() > 1){
-       AdaptiveVertexFitter  theFitter;
-       //TrimmedVertexFitter  theFitter;
-       
-       //theFitter.setWeightThreshold(0.7);
 
-       theFitter.setParameters(0.0001, 0.1, 30, 0.5 );
+       // AdaptiveVertexFitter definition with a track significance cutoff of 2.5:
+       AdaptiveVertexFitter  theFitter(GeometricAnnealing(2.5));
 
+       // Vertex refitting:
        TransientVertex myVertex = theFitter.vertex(refit_tracks);
 
+
+       // Get the refitted vertex values:
        if (myVertex.isValid()){
 
            RefittedPV_vx = myVertex.position().x();
@@ -321,8 +332,11 @@ void AODAnalysis::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetu
 
    }
 
-   std::cout << "Original PV: " << PV_vx << "\t" << "Refitted_PV: " << RefittedPV_vx << std::endl;
 
+   PV_fittingtracks = refit_tracks.size();
+
+
+   std::cout << "Original PV: " << PV_vx << "\t" << "Refitted_PV: " << RefittedPV_vx << std::endl;
    
    
    /////////////////////////////////////////////////////////////////////////////////////
