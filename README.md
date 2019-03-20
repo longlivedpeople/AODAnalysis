@@ -1,8 +1,8 @@
-# IFCALongLivedAnalysis
+# IFCALongLivedAnalysis (AOD format)
 
-This framework is devoted to get the relevant collections from MINIAOD and put them into plain trees in the context of the Long Lived analysis developed at IFCA.
+This framework is devoted to get the relevant collections from AOD and put them into plain trees in the context of the Long Lived analysis developed at IFCA.
 
-Installation
+## Installation
 
 cmsrel CMSSW_9_4_4
 
@@ -14,6 +14,6 @@ mkdir MyAnalysis
 
 cd MyAnalysis
 
-git clone https://github.com/longlivedpeople/IFCALongLivedAnalysis.git
+git clone https://github.com/longlivedpeople/AODAnalysis.git
 
 
