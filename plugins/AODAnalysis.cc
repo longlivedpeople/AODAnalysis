@@ -170,7 +170,7 @@ Float_t BeamSpot_BeamWidthY;
 //-> GENERAL TRACKS
 const Int_t nTrackMax = 1000;
 Int_t nTrack;
-Int_t nOriginalTrack;
+Int_t nTrackOriginal;
 Float_t TrackSel_pt[nTrackMax];
 Float_t TrackSel_eta[nTrackMax];
 Float_t TrackSel_phi[nTrackMax];
@@ -314,7 +314,6 @@ void AODAnalysis::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetu
    ////////////////////////////////// GENERAL TRACKS //////////////////////////////////
 
    std::vector<int> iT; // track selection indexes
-   int itrack = 0; // track counter
 
    // Loop over general tracks
    for (size_t i = 0; i < generalTracks->size(); i++){
@@ -322,22 +321,31 @@ void AODAnalysis::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetu
        const reco::Track & track = (*generalTracks)[i];
 
        // Check if the track fulfils the preselection requirements
-       if (!generalTrackPreselection(track)) { continue; }
+       if (generalTrackPreselection(track)) { iT.push_back(i); }
 
-       iT.push_back(i);
+   }
 
+
+   // Sort preselected track indexes by pt
+   std::sort( std::begin(iT), std::end(iT), [&](int i1, int i2){ return generalTracks->at(i1).pt() < generalTracks->at(i2).pt(); });
+
+
+   // Loop over the preselected tracks
+   for (size_t i = 0; i < iT.size(); i++){
+
+       const reco::Track & track = (*generalTracks)[iT.at(i)];
        
        // Get the variables
-       TrackSel_pt[itrack] = track.pt();
-       TrackSel_eta[itrack] = track.eta();
-       TrackSel_phi[itrack] = track.phi();
-       TrackSel_dxy[itrack] = track.dxy();
-       TrackSel_dxyError[itrack] = track.dxyError();
-       TrackSel_dz[itrack] = track.dz();
-       TrackSel_dzError[itrack] = track.dzError();
-       TrackSel_vx[itrack] = track.vx();
-       TrackSel_vy[itrack] = track.vy();
-       TrackSel_vz[itrack] = track.vz(); 
+       TrackSel_pt[i] = track.pt();
+       TrackSel_eta[i] = track.eta();
+       TrackSel_phi[i] = track.phi();
+       TrackSel_dxy[i] = track.dxy();
+       TrackSel_dxyError[i] = track.dxyError();
+       TrackSel_dz[i] = track.dz();
+       TrackSel_dzError[i] = track.dzError();
+       TrackSel_vx[i] = track.vx();
+       TrackSel_vy[i] = track.vy();
+       TrackSel_vz[i] = track.vz(); 
 
        // Hit info
        const reco::HitPattern &hits = track.hitPattern();
@@ -345,14 +353,11 @@ void AODAnalysis::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetu
        TrackSel_numberOfValidTrackerHits[i] = hits.numberOfValidTrackerHits();
        TrackSel_numberOfValidPixelHits[i] = hits.numberOfValidPixelHits();
 
-       // Update the counter
-       itrack++;
-
    }
 
 
    nTrack = iT.size(); // number of selected tracks
-   nOriginalTrack = generalTracks->size(); // original number of general tracks in AOD
+   nTrackOriginal = generalTracks->size(); // original number of general tracks in AOD
 
 
    ////////////////////////////// PRIMARY VERTEX FEATURES //////////////////////////////
@@ -366,10 +371,48 @@ void AODAnalysis::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetu
    PV_vz = vertex->position().z();
 
 
-   PV_nTracks = vertex->nTracks(); // to check
-   PV_tracksSize= vertex->tracksSize(); // to check
+   PV_nTracks = vertex->nTracks(); // number of tracks with weights > 0.5
+   PV_tracksSize= vertex->tracksSize(); // number of tracks associated to the vertex
 
- 
+
+   ////////////////////////////////// PHOTON FEATURES //////////////////////////////////
+   
+   std::vector<int> iP; // photon indexes
+
+   // Loop over the photons
+   for (size_t i = 0; i < photons->size(); i++){
+
+       const reco::Photon & photon = (*photons)[i];
+
+       if (photonPreselection(photon)) { iP.push_back(i); }
+
+   }
+
+
+   // Sort preselected photon indexes by et
+   std::sort( std::begin(iP), std::end(iP), [&](int i1, int i2){ return photons->at(i1).et() < photons->at(i2).et(); });
+
+
+   // Loop over the preselected photons
+   for (size_t i = 0; i < iP.size(); ++i){
+
+       const reco::Photon & photon = (*photons)[iP.at(i)];
+
+       PhotonSel_et[i] = photon.et();
+       PhotonSel_eta[i] = photon.eta();
+       PhotonSel_phi[i] = photon.phi();
+       PhotonSel_hadronicOverEm[i] = photon.hadronicOverEm();
+       PhotonSel_full5x5_sigmaIetaIeta[i] = photon.full5x5_sigmaIetaIeta();
+       PhotonSel_isEB[i] = photon.isEB();
+       PhotonSel_isEE[i] = photon.isEE();
+
+
+   }
+
+   nPhoton = iP.size(); // number of preselected photons
+   nPhotonOriginal = photons->size(); // original number of photons in AOD
+
+
    /////////////////////////////////////////////////////////////////////////////////////
    ////////////////////////////////// VERTEX REFITTING /////////////////////////////////
    /////////////////////////////////////////////////////////////////////////////////////
@@ -476,7 +519,7 @@ void AODAnalysis::beginJob()
     /////////////////////////////// GENERAL TRACK BRANCHES //////////////////////////////
 
     tree_out->Branch("nTrack", &nTrack, "nTrack/I");
-    tree_out->Branch("nOriginalTrack", &nOriginalTrack, "nOriginalTrack/I");
+    tree_out->Branch("nTrackOriginal", &nTrackOriginal, "nTrackOriginal/I");
     tree_out->Branch("TrackSel_pt", TrackSel_pt, "TrackSel_pt[nTrack]/F");
     tree_out->Branch("TrackSel_eta", TrackSel_eta, "TrackSel_eta[nTrack]/F");
     tree_out->Branch("TrackSel_phi", TrackSel_phi, "TrackSel_phi[nTrack]/F");
@@ -501,6 +544,21 @@ void AODAnalysis::beginJob()
     tree_out->Branch("PV_nTracks", &PV_nTracks, "PV_nTracks/I");
     tree_out->Branch("PV_fittingtracks", &PV_fittingtracks, "PV_fittingtracks/I");
     tree_out->Branch("PV_tracksSize", &PV_tracksSize, "PV_tracksSize/I");
+
+
+    ////////////////////////////////// PHOTON BRANCHES //////////////////////////////////
+
+    tree_out->Branch("nPhoton", &nPhoton, "nPhoton/I");
+    tree_out->Branch("nPhotonOriginal", &nPhotonOriginal, "nPhotonOirginal/I");
+    tree_out->Branch("PhotonSel_et", PhotonSel_et, "PhotonSel_et[nPhoton]/F");
+    tree_out->Branch("PhotonSel_eta", PhotonSel_eta, "PhotonSel_eta[nPhoton]/F");
+    tree_out->Branch("PhotonSel_phi", PhotonSel_phi, "PhotonSel_phi[nPhoton]/F");
+    tree_out->Branch("PhotonSel_hadronicOverEm", PhotonSel_hadronicOverEm, "PhotonSel_hadronicOverEm[nPhoton]/F");
+    tree_out->Branch("PhotonSel_full5x5_sigmaIetaIeta", PhotonSel_full5x5_sigmaIetaIeta, "PhotonSel_full5x5_sigmaIetaIeta[nPhoton]/F");
+    tree_out->Branch("PhotonSel_isEB", PhotonSel_isEB, "PhotonSel_isEB[nPhoton]/I");
+    tree_out->Branch("PhotonSel_isEE", PhotonSel_isEE, "PhotonSel_isEE[nPhoton]/I");
+
+
 
     /////////////////////////// REFITTED PRIMARY VERTEX BRANCHES ////////////////////////
 
