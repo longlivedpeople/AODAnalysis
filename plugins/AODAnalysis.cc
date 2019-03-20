@@ -38,19 +38,23 @@
 
 
 #include "DataFormats/Common/interface/Handle.h"
+
 #include "DataFormats/PatCandidates/interface/Muon.h"
 #include "DataFormats/PatCandidates/interface/Electron.h"
-#include "DataFormats/PatCandidates/interface/Photon.h"
+//#include "DataFormats/PatCandidates/interface/Photon.h"
 #include "DataFormats/PatCandidates/interface/IsolatedTrack.h"
+#include "DataFormats/PatCandidates/interface/PFIsolation.h"
+#include "DataFormats/PatCandidates/interface/PackedCandidate.h"
+
+
 #include "DataFormats/TrackReco/interface/HitPattern.h"
 #include "DataFormats/TrackReco/interface/TrackFwd.h"
 #include "DataFormats/TrackReco/interface/Track.h"
+#include "DataFormats/EgammaCandidates/interface/Photon.h"
 #include "DataFormats/Common/interface/RefToBase.h"
 #include "DataFormats/TrackReco/interface/HitPattern.h"
 #include "DataFormats/VertexReco/interface/Vertex.h"
-#include "DataFormats/PatCandidates/interface/PFIsolation.h"
 #include "DataFormats/BeamSpot/interface/BeamSpot.h"
-#include "DataFormats/PatCandidates/interface/PackedCandidate.h"
 
 
 
@@ -98,6 +102,33 @@
 ///////////////////////////////////// FUNCTIONS ///////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////
 
+bool generalTrackPreselection(const reco::Track & track)
+{
+
+    // Return trie if the general track fulfils very soft requirements
+    
+    if (fabs(track.eta()) > 2.0) { return false; }
+    if (track.pt() < 20) { return false; }
+
+    return true;
+
+}
+
+
+bool photonPreselection(const reco::Photon & photon)
+{
+
+    // Return true if the photon fulfills with the analysis requirements and false instead
+
+    if (fabs(photon.eta()) > 1.4442 && fabs(photon.eta()) < 1.566) { return false; } // narrow EB region to be defined
+    if (photon.hadronicOverEm() > 0.05) { return false; }
+    if (photon.isEE() && photon.full5x5_sigmaIetaIeta() > 0.034) { return false; }
+    if (photon.isEB() && photon.full5x5_sigmaIetaIeta() > 0.012) { return false; }
+
+    return true;
+
+}
+
 
 
 /////////////////////////////////////////////////////////////////////////////////////
@@ -136,7 +167,35 @@ Float_t BeamSpot_BeamWidthX;
 Float_t BeamSpot_BeamWidthY;
 
 
+//-> GENERAL TRACKS
+const Int_t nTrackMax = 1000;
+Int_t nTrack;
+Int_t nOriginalTrack;
+Float_t TrackSel_pt[nTrackMax];
+Float_t TrackSel_eta[nTrackMax];
+Float_t TrackSel_phi[nTrackMax];
+Float_t TrackSel_dxy[nTrackMax];
+Float_t TrackSel_dxyError[nTrackMax];
+Float_t TrackSel_dz[nTrackMax];
+Float_t TrackSel_dzError[nTrackMax];
+Float_t TrackSel_vx[nTrackMax];
+Float_t TrackSel_vy[nTrackMax];
+Float_t TrackSel_vz[nTrackMax];
+Int_t TrackSel_numberOfValidTrackerHits[nTrackMax];
+Int_t TrackSel_numberOfValidPixelHits[nTrackMax];
 
+
+//-> PHOTONS
+const Int_t nPhotonMax = 100;
+Int_t nPhoton;
+Int_t nPhotonOriginal;
+Float_t PhotonSel_et[nPhotonMax];
+Float_t PhotonSel_eta[nPhotonMax];
+Float_t PhotonSel_phi[nPhotonMax];
+Float_t PhotonSel_hadronicOverEm[nPhotonMax];
+Float_t PhotonSel_full5x5_sigmaIetaIeta[nPhotonMax];
+Int_t PhotonSel_isEB[nPhotonMax];
+Int_t PhotonSel_isEE[nPhotonMax];
 
 
 
@@ -166,8 +225,8 @@ class AODAnalysis : public edm::one::EDAnalyzer<edm::one::SharedResources>  {
 
       edm::EDGetTokenT<edm::View<reco::Vertex> > thePrimaryVertexCollection;
       edm::EDGetTokenT<edm::View<reco::Track> > theGeneralTrackCollection;
-
       edm::EDGetTokenT<reco::BeamSpot> theBeamSpot;
+      edm::EDGetTokenT<edm::View<reco::Photon> > thePhotonCollection;
 
 
 
@@ -187,9 +246,8 @@ AODAnalysis::AODAnalysis(const edm::ParameterSet& iConfig)
 
    thePrimaryVertexCollection = consumes<edm::View<reco::Vertex> >  (parameters.getParameter<edm::InputTag>("PrimaryVertexCollection"));
    theGeneralTrackCollection = consumes<edm::View<reco::Track> > (parameters.getParameter<edm::InputTag>("GeneralTrackCollection"));
-
    theBeamSpot = consumes<reco::BeamSpot>  (parameters.getParameter<edm::InputTag>("BeamSpot"));
-
+   thePhotonCollection = consumes<edm::View<reco::Photon> > (parameters.getParameter<edm::InputTag>("PhotonCollection"));
 
 
 
@@ -220,19 +278,19 @@ void AODAnalysis::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetu
 
    //////////////////////////////// GET THE COLLECTIONS ////////////////////////////////
    
-
+   //-> Handle declaration
    edm::Handle<edm::View<reco::Vertex> > primaryVertices;
    edm::Handle<edm::View<reco::Track> > generalTracks;
    edm::Handle<reco::BeamSpot> beamSpot;
+   edm::Handle<edm::View<reco::Photon> > photons;
 
 
 
-
-
+   //-> Get by Token from the file
    iEvent.getByToken(thePrimaryVertexCollection, primaryVertices);
    iEvent.getByToken(theGeneralTrackCollection, generalTracks);
    iEvent.getByToken(theBeamSpot, beamSpot);
-
+   iEvent.getByToken(thePhotonCollection, photons);
 
 
    /////////////////////////////////// EVENT INFO //////////////////////////////////////
@@ -255,14 +313,46 @@ void AODAnalysis::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetu
 
    ////////////////////////////////// GENERAL TRACKS //////////////////////////////////
 
+   std::vector<int> iT; // track selection indexes
+   int itrack = 0; // track counter
 
-   /*
-   for (int i = 0; i < 10; i++){
+   // Loop over general tracks
+   for (size_t i = 0; i < generalTracks->size(); i++){
 
-   const reco::Track &track = (*generalTracks)[i]; 
+       const reco::Track & track = (*generalTracks)[i];
+
+       // Check if the track fulfils the preselection requirements
+       if (!generalTrackPreselection(track)) { continue; }
+
+       iT.push_back(i);
+
+       
+       // Get the variables
+       TrackSel_pt[itrack] = track.pt();
+       TrackSel_eta[itrack] = track.eta();
+       TrackSel_phi[itrack] = track.phi();
+       TrackSel_dxy[itrack] = track.dxy();
+       TrackSel_dxyError[itrack] = track.dxyError();
+       TrackSel_dz[itrack] = track.dz();
+       TrackSel_dzError[itrack] = track.dzError();
+       TrackSel_vx[itrack] = track.vx();
+       TrackSel_vy[itrack] = track.vy();
+       TrackSel_vz[itrack] = track.vz(); 
+
+       // Hit info
+       const reco::HitPattern &hits = track.hitPattern();
+
+       TrackSel_numberOfValidTrackerHits[i] = hits.numberOfValidTrackerHits();
+       TrackSel_numberOfValidPixelHits[i] = hits.numberOfValidPixelHits();
+
+       // Update the counter
+       itrack++;
 
    }
-   */
+
+
+   nTrack = iT.size(); // number of selected tracks
+   nOriginalTrack = generalTracks->size(); // original number of general tracks in AOD
 
 
    ////////////////////////////// PRIMARY VERTEX FEATURES //////////////////////////////
@@ -381,6 +471,25 @@ void AODAnalysis::beginJob()
     tree_out->Branch("BeamSpot_z0", &BeamSpot_z0, "BeamSpot_z0/F");
     tree_out->Branch("BeamSpot_BeamWidthX", &BeamSpot_BeamWidthX, "BeamSpot_BeamWidthX/F");
     tree_out->Branch("BeamSpot_BeamWidthY", &BeamSpot_BeamWidthY, "BeamSpot_BeamWidthY/F");
+
+
+    /////////////////////////////// GENERAL TRACK BRANCHES //////////////////////////////
+
+    tree_out->Branch("nTrack", &nTrack, "nTrack/I");
+    tree_out->Branch("nOriginalTrack", &nOriginalTrack, "nOriginalTrack/I");
+    tree_out->Branch("TrackSel_pt", TrackSel_pt, "TrackSel_pt[nTrack]/F");
+    tree_out->Branch("TrackSel_eta", TrackSel_eta, "TrackSel_eta[nTrack]/F");
+    tree_out->Branch("TrackSel_phi", TrackSel_phi, "TrackSel_phi[nTrack]/F");
+    tree_out->Branch("TrackSel_dxy", TrackSel_dxy, "TrackSel_dxy[nTrack]/F");
+    tree_out->Branch("TrackSel_dxyError", TrackSel_dxyError, "TrackSel_dxyError[nTrack]/F");
+    tree_out->Branch("TrackSel_dz", TrackSel_dz, "TrackSel_dz[nTrack]/F");
+    tree_out->Branch("TrackSel_dzError", TrackSel_dzError, "TrackSel_dzError[nTrack]/F");
+    tree_out->Branch("TrackSel_vx", TrackSel_vx, "TrackSel_vx[nTrack]/F");
+    tree_out->Branch("TrackSel_vy", TrackSel_vy, "TrackSel_vy[nTrack]/F");
+    tree_out->Branch("TrackSel_vz", TrackSel_vz, "TrackSel_vz[nTrack]/F");
+    tree_out->Branch("TrackSel_numberOfValidTrackerHits", TrackSel_numberOfValidTrackerHits, "TrackSel_numberOfValidTrackerHits[nTrack]/I");
+    tree_out->Branch("TrackSel_numberOfValidPixelHits", TrackSel_numberOfValidPixelHits, "TrackSel_numberOfValidPixelHits[nTrack]/I");
+
 
 
     ////////////////////////////// PRIMARY VERTEX BRANCHES //////////////////////////////
