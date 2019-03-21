@@ -75,6 +75,9 @@
 #include "DataFormats/Candidate/interface/Candidate.h"
 
 
+#include "HLTrigger/HLTcore/interface/HLTConfigProvider.h"
+
+
 #include "DataFormats/HepMCCandidate/interface/GenParticle.h"
 #include "RecoVertex/VertexTools/interface/GeometricAnnealing.h"
 
@@ -211,7 +214,12 @@ Float_t PhotonSel_full5x5_sigmaIetaIeta[nPhotonMax];
 Int_t PhotonSel_isEB[nPhotonMax];
 Int_t PhotonSel_isEE[nPhotonMax];
 
-
+//-> MUON TRIGGER OBJECTS
+const Int_t nMuonTriggerObjectMax = 500;
+Int_t nMuonTriggerObject;
+Float_t MuonTriggerObjectSel_pt[nMuonTriggerObjectMax];
+Float_t MuonTriggerObjectSel_eta[nMuonTriggerObjectMax];
+Float_t MuonTriggerObjectSel_phi[nMuonTriggerObjectMax];
 
 
 //-> GENPARTICLES (DISPLACED LEPTONS)
@@ -223,6 +231,9 @@ Float_t GenParticleSel_phi[nGenParticleMax];
 Int_t GenParticleSel_pdgId[nGenParticleMax];
 
 
+//-> TRIGGER INFO
+const std::string muonPathName = "HLT_DoubleMu43NoFiltersNoVtx_v3"; // default
+Bool_t HLT_DoubleMu43NoFiltersNoVtx_v3;
 
 
 /////////////////////////////////////// OUTPUT //////////////////////////////////////
@@ -245,6 +256,7 @@ class AODAnalysis : public edm::one::EDAnalyzer<edm::one::SharedResources>  {
       virtual void analyze(const edm::Event&, const edm::EventSetup&) override;
       virtual void endJob() override;
 
+
       std::string output_filename;
       edm::ParameterSet parameters;
 
@@ -258,6 +270,10 @@ class AODAnalysis : public edm::one::EDAnalyzer<edm::one::SharedResources>  {
 
       edm::EDGetTokenT<edm::TriggerResults> triggerBits_;
       edm::EDGetTokenT<trigger::TriggerEvent> triggerSummary_;
+
+
+      //HLTConfigProvider hltConfig_;
+
 
 };
 //=======================================================================================================================================================================================================================//
@@ -454,36 +470,63 @@ void AODAnalysis::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetu
 
    ////////////////////////////// MUON TRIGGER OBJECTS /////////////////////////////////
 
+   // -> TRIGGER INFO
 
+   // Access the trigger names of the event
    const edm::TriggerNames& trigNames = iEvent.triggerNames(*triggerBits); 
 
-   std::string pathName = "HLT_DoubleMu43NoFiltersNoVtx_v3"; // default
+   std::string muonPathName = "HLT_DoubleMu43NoFiltersNoVtx_v3"; // default
 
-   bool passTrig=triggerBits->accept(trigNames.triggerIndex(pathName));  
+   HLT_DoubleMu43NoFiltersNoVtx_v3 = triggerBits->accept(trigNames.triggerIndex(muonPathName));  
 
 
+   // -> MUON OBJECTS
+   std::vector<int> iMT; // muon trigger object indexes
 
-   trigger::size_type filterIndex = trigSummary->filterIndex(edm::InputTag("hltL3fL1sMu5EG20orMu20EG15L1f5L2NVf16L3NoFiltersNoVtxFiltered48","", "HLT")); 
+
+   // Access the muon objects
+   trigger::size_type filterIndex = trigSummary->filterIndex(edm::InputTag("hltL3fL1sMu5EG20orMu20EG15L1f5L2NVf16L3NoFiltersNoVtxFiltered48","", "HLT")); // the filters has to be defined 
    trigger::TriggerObjectCollection triggerObjects = trigSummary->getObjects();
 
-   
+   // filterIndex only less if the filter is present
    if( !(filterIndex >= trigSummary->sizeFilters()) ) {
 
        const trigger::Keys& keys = trigSummary->filterKeys( filterIndex );
+
+       // Loop over the keys of the objects associated to the filter
        for(unsigned short key : keys) {
-           trigger::TriggerObject foundObject = triggerObjects[key];
        
-           std::cout << foundObject.pt() << std::endl;
+           iMT.push_back(key);
+       
        }
+
    }
+
+   // Sort muon object triggers by pt:
+   std::sort(std::begin(iMT), std::end(iMT), [&](int i1, int i2){ return triggerObjects[i1].pt() < triggerObjects[i2].pt(); });
+
+
+   // Store the muon trigger objects
+   for (size_t i = 0; i < iMT.size(); i++){
+
+       trigger::TriggerObject foundObject = triggerObjects[i];
+
+       MuonTriggerObjectSel_pt[i] = foundObject.pt();
+       MuonTriggerObjectSel_eta[i] = foundObject.eta();
+       MuonTriggerObjectSel_phi[i] = foundObject.phi();
+
+   }
+
+   nMuonTriggerObject = iMT.size(); // number of found muon trigger objects
+
 
 
    //////////////////////////////// GENPARTICLE FEATURES ///////////////////////////////
    
    std::vector<int> iGP;
 
-   for(size_t i = 0; i < genParticles->size(); i++) {
-
+   
+   for(size_t i = 0; i < genParticles->size(); i++){
 
         const reco::GenParticle &genparticle = (*genParticles)[i];
 
@@ -678,6 +721,19 @@ void AODAnalysis::beginJob()
     tree_out->Branch("GenParticleSel_pdgId", GenParticleSel_pdgId, "GenParticleSel_pdgId[nGenParticle]/I"); 
 
 
+    //////////////////////////// MUON TRIGGER OBJECT BRANCHES ///////////////////////////
+
+    tree_out->Branch("nMuonTriggerObject", &nMuonTriggerObject, "nMuonTriggerObject/I");
+    tree_out->Branch("MuonTriggerObjectSel_pt", MuonTriggerObjectSel_pt, "MuonTriggerObjectSel_pt[nMuonTriggerObject]/F");
+    tree_out->Branch("MuonTriggerObjectSel_eta", MuonTriggerObjectSel_eta, "MuonTriggerObjectSel_eta[nMuonTriggerObject]/F");
+    tree_out->Branch("MuonTriggerObjectSel_phi", MuonTriggerObjectSel_phi, "MuonTriggerObjectSel_phi[nMuonTriggerObject]/F");
+
+
+
+    ////////////////////////////////// TRIGGER INFORMATION //////////////////////////////
+
+    tree_out->Branch("HLT_DoubleMu43NoFiltersNoVtx_v3", &HLT_DoubleMu43NoFiltersNoVtx_v3, "HLT_DoubleMu43NoFiltersNoVtx_v3/O");
+
 
     /////////////////////////// REFITTED PRIMARY VERTEX BRANCHES ////////////////////////
 
@@ -709,8 +765,28 @@ void AODAnalysis::endJob()
 }
 //=======================================================================================================================================================================================================================//
 
+/*
+void AODAnalysis::beginRun(edm::Run const & iRun, edm::EventSetup const& iSetup)
+{
+  bool changed(true);
+  if (hltConfig_.init(iRun,iSetup,"HLT",changed)) {
+    // if init returns TRUE, initialisation has succeeded!
+    if (changed) {
+    // The HLT config has actually changed wrt the previous Run, hence rebook your
+    //  histograms or do anything else dependent on the revised HLT config
 
+    const std::vector<std::string>& filters = hltConfig_.moduleLabels("HLT_DoubleMu43NoFiltersNoVtx_v3");
 
+    std::cout << filters[0] << std::endl;
+
+    }
+  } else {
+    //LogError("MyAnalyzer") << " HLT config extraction failure with process name " << processName_;
+
+  }
+
+}
+*/
 
 //=======================================================================================================================================================================================================================//
 void AODAnalysis::fillDescriptions(edm::ConfigurationDescriptions& descriptions) {

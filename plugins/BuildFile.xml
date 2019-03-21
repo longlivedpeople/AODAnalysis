@@ -21,4 +21,5 @@
 <use name="RecoVertex/TrimmedVertexFit"/>
 <use name="RecoVertex/VertexTools"/>
 <use name="DataFormats/HLTReco"/>
+<use name="HLTrigger/HLTcore"/>
 <flags EDM_PLUGIN="1"/>
