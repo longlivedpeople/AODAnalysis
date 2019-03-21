@@ -1,4 +1,4 @@
-//=======================================================================================================================================================================================================================// 
+//=======================================================================================================================================================================================================================//ryAOD" 
 //                                                                                                                                                                                                                       // 
 //$$$$$$\ $$$$$$$$\  $$$$$$\   $$$$$$\                      $$\                                    $$\       $$\                            $$\  $$$$$$\                      $$\                     $$                 //
 //\_$$  _|$$  _____|$$  __$$\ $$  __$$\                     $$ |                                   $$ |      \__|                           $$ |$$  __$$\                     $$ |                    \__|               //
@@ -68,6 +68,8 @@
 
 #include "FWCore/Common/interface/TriggerNames.h"
 #include "DataFormats/Common/interface/TriggerResults.h"
+#include "DataFormats/HLTReco/interface/TriggerEvent.h"
+#include "DataFormats/HLTReco/interface/TriggerObject.h"
 #include "DataFormats/PatCandidates/interface/TriggerObjectStandAlone.h"
 #include "DataFormats/PatCandidates/interface/PackedTriggerPrescales.h"
 #include "DataFormats/Candidate/interface/Candidate.h"
@@ -129,6 +131,18 @@ bool photonPreselection(const reco::Photon & photon)
 
 }
 
+
+bool isLongLivedLepton(const reco::GenParticle &p)
+{
+
+    // Return true if the genparticle is one of the four displaced leptons of the event
+
+    if (!( abs(p.pdgId()) == 11 || abs(p.pdgId()) == 13)){ return false; }
+    if (abs(p.mother()->pdgId()) != 1000022){ return false; }
+
+    return true;
+
+}
 
 
 /////////////////////////////////////////////////////////////////////////////////////
@@ -199,6 +213,18 @@ Int_t PhotonSel_isEE[nPhotonMax];
 
 
 
+
+//-> GENPARTICLES (DISPLACED LEPTONS)
+const Int_t nGenParticleMax = 500;
+Int_t nGenParticle;
+Float_t GenParticleSel_pt[nGenParticleMax];
+Float_t GenParticleSel_eta[nGenParticleMax];
+Float_t GenParticleSel_phi[nGenParticleMax];
+Int_t GenParticleSel_pdgId[nGenParticleMax];
+
+
+
+
 /////////////////////////////////////// OUTPUT //////////////////////////////////////
 
 TFile *file_out;
@@ -227,8 +253,11 @@ class AODAnalysis : public edm::one::EDAnalyzer<edm::one::SharedResources>  {
       edm::EDGetTokenT<edm::View<reco::Track> > theGeneralTrackCollection;
       edm::EDGetTokenT<reco::BeamSpot> theBeamSpot;
       edm::EDGetTokenT<edm::View<reco::Photon> > thePhotonCollection;
+      edm::EDGetTokenT<edm::View<reco::GenParticle> >  theGenParticleCollection;
 
 
+      edm::EDGetTokenT<edm::TriggerResults> triggerBits_;
+      edm::EDGetTokenT<trigger::TriggerEvent> triggerSummary_;
 
 };
 //=======================================================================================================================================================================================================================//
@@ -248,8 +277,11 @@ AODAnalysis::AODAnalysis(const edm::ParameterSet& iConfig)
    theGeneralTrackCollection = consumes<edm::View<reco::Track> > (parameters.getParameter<edm::InputTag>("GeneralTrackCollection"));
    theBeamSpot = consumes<reco::BeamSpot>  (parameters.getParameter<edm::InputTag>("BeamSpot"));
    thePhotonCollection = consumes<edm::View<reco::Photon> > (parameters.getParameter<edm::InputTag>("PhotonCollection"));
+   theGenParticleCollection = consumes<edm::View<reco::GenParticle> >  (parameters.getParameter<edm::InputTag>("GenParticleCollection"));
 
 
+   triggerBits_ = consumes<edm::TriggerResults> (parameters.getParameter<edm::InputTag>("bits"));
+   triggerSummary_ = consumes<trigger::TriggerEvent> (parameters.getParameter<edm::InputTag>("triggerSummary"));
 
 }
 //=======================================================================================================================================================================================================================//
@@ -283,7 +315,10 @@ void AODAnalysis::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetu
    edm::Handle<edm::View<reco::Track> > generalTracks;
    edm::Handle<reco::BeamSpot> beamSpot;
    edm::Handle<edm::View<reco::Photon> > photons;
+   edm::Handle<edm::View<reco::GenParticle> > genParticles;
 
+   edm::Handle<edm::TriggerResults> triggerBits;
+   edm::Handle<trigger::TriggerEvent> trigSummary;
 
 
    //-> Get by Token from the file
@@ -291,6 +326,10 @@ void AODAnalysis::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetu
    iEvent.getByToken(theGeneralTrackCollection, generalTracks);
    iEvent.getByToken(theBeamSpot, beamSpot);
    iEvent.getByToken(thePhotonCollection, photons);
+   iEvent.getByToken(theGenParticleCollection, genParticles);
+
+   iEvent.getByToken(triggerBits_, triggerBits);
+   iEvent.getByToken(triggerSummary_, trigSummary);
 
 
    /////////////////////////////////// EVENT INFO //////////////////////////////////////
@@ -411,6 +450,77 @@ void AODAnalysis::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetu
 
    nPhoton = iP.size(); // number of preselected photons
    nPhotonOriginal = photons->size(); // original number of photons in AOD
+
+
+   ////////////////////////////// MUON TRIGGER OBJECTS /////////////////////////////////
+
+
+   const edm::TriggerNames& trigNames = iEvent.triggerNames(*triggerBits); 
+
+   std::string pathName = "HLT_DoubleMu43NoFiltersNoVtx_v3"; // default
+
+   bool passTrig=triggerBits->accept(trigNames.triggerIndex(pathName));  
+
+
+
+   trigger::size_type filterIndex = trigSummary->filterIndex(edm::InputTag("hltL3fL1sMu5EG20orMu20EG15L1f5L2NVf16L3NoFiltersNoVtxFiltered48","", "HLT")); 
+   trigger::TriggerObjectCollection triggerObjects = trigSummary->getObjects();
+
+   
+   if( !(filterIndex >= trigSummary->sizeFilters()) ) {
+
+       const trigger::Keys& keys = trigSummary->filterKeys( filterIndex );
+       for(unsigned short key : keys) {
+           trigger::TriggerObject foundObject = triggerObjects[key];
+       
+           std::cout << foundObject.pt() << std::endl;
+       }
+   }
+
+
+   //////////////////////////////// GENPARTICLE FEATURES ///////////////////////////////
+   
+   std::vector<int> iGP;
+
+   for(size_t i = 0; i < genParticles->size(); i++) {
+
+
+        const reco::GenParticle &genparticle = (*genParticles)[i];
+
+        if (isLongLivedLepton(genparticle)){ iGP.push_back(i); }
+
+
+   }
+
+   // Loop over the selected gen particles
+   for(size_t i = 0; i < iGP.size(); i++){
+
+       const reco::GenParticle &genparticle = (*genParticles)[iGP.at(i)];
+
+       GenParticleSel_pdgId[i] = genparticle.pdgId();
+
+       // Get the last genparticle (to avoid radiative effects):
+       if (genparticle.numberOfDaughters() > 0){
+
+           const reco::Candidate *d = genparticle.daughter(0);
+           while(d->numberOfDaughters()> 0 && d->daughter(0)->pdgId() == d->pdgId()){ d = d->daughter(0); }
+
+           GenParticleSel_pt[i] = d->pt();
+           GenParticleSel_eta[i] = d->eta();
+           GenParticleSel_phi[i] = d->phi();
+
+       } else {
+
+           GenParticleSel_pt[i] = genparticle.pt();
+           GenParticleSel_eta[i] = genparticle.eta();
+           GenParticleSel_phi[i] = genparticle.phi();
+
+       }
+
+
+   }
+
+   nGenParticle = iGP.size();
 
 
    /////////////////////////////////////////////////////////////////////////////////////
@@ -557,6 +667,15 @@ void AODAnalysis::beginJob()
     tree_out->Branch("PhotonSel_full5x5_sigmaIetaIeta", PhotonSel_full5x5_sigmaIetaIeta, "PhotonSel_full5x5_sigmaIetaIeta[nPhoton]/F");
     tree_out->Branch("PhotonSel_isEB", PhotonSel_isEB, "PhotonSel_isEB[nPhoton]/I");
     tree_out->Branch("PhotonSel_isEE", PhotonSel_isEE, "PhotonSel_isEE[nPhoton]/I");
+
+
+    //////////////////////////////// GENPARTICLE BRANCHES ///////////////////////////////
+
+    tree_out->Branch("nGenParticle", &nGenParticle, "nGenParticle/I");
+    tree_out->Branch("GenParticleSel_pt", GenParticleSel_pt, "GenParticleSel_pt[nGenParticle]/F");
+    tree_out->Branch("GenParticleSel_eta", GenParticleSel_eta, "GenParticleSel_eta[nGenParticle]/F");
+    tree_out->Branch("GenParticleSel_phi", GenParticleSel_phi, "GenParticleSel_phi[nGenParticle]/F");
+    tree_out->Branch("GenParticleSel_pdgId", GenParticleSel_pdgId, "GenParticleSel_pdgId[nGenParticle]/I"); 
 
 
 
