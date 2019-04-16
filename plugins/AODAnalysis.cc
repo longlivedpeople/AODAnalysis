@@ -41,7 +41,7 @@
 
 #include "DataFormats/PatCandidates/interface/Muon.h"
 #include "DataFormats/PatCandidates/interface/Electron.h"
-//#include "DataFormats/PatCandidates/interface/Photon.h"
+#include "DataFormats/PatCandidates/interface/Photon.h"
 #include "DataFormats/PatCandidates/interface/IsolatedTrack.h"
 #include "DataFormats/PatCandidates/interface/PFIsolation.h"
 #include "DataFormats/PatCandidates/interface/PackedCandidate.h"
@@ -184,22 +184,32 @@ Float_t BeamSpot_BeamWidthX;
 Float_t BeamSpot_BeamWidthY;
 
 
-//-> GENERAL TRACKS
-const Int_t nTrackMax = 1000;
+//-> GENERAL TRACKS + DISPLACED TRACKS
+const Int_t nTrackMax = 100000;
 Int_t nTrack;
-Int_t nTrackOriginal;
 Float_t TrackSel_pt[nTrackMax];
 Float_t TrackSel_eta[nTrackMax];
 Float_t TrackSel_phi[nTrackMax];
 Float_t TrackSel_dxy[nTrackMax];
 Float_t TrackSel_dxyError[nTrackMax];
+Float_t TrackSel_d0[nTrackMax];
+Float_t TrackSel_d0Error[nTrackMax];
 Float_t TrackSel_dz[nTrackMax];
 Float_t TrackSel_dzError[nTrackMax];
 Float_t TrackSel_vx[nTrackMax];
 Float_t TrackSel_vy[nTrackMax];
 Float_t TrackSel_vz[nTrackMax];
+Int_t TrackSel_isDisplaced[nTrackMax];
+Int_t TrackSel_trackIndex[nTrackMax];
 Int_t TrackSel_numberOfValidTrackerHits[nTrackMax];
 Int_t TrackSel_numberOfValidPixelHits[nTrackMax];
+Int_t TrackSel_numberOfValidPixelBarrelHits[nTrackMax];
+Int_t TrackSel_numberOfValidPixelEndcapHits[nTrackMax];
+Int_t TrackSel_numberOfValidStripHits[nTrackMax];
+Int_t TrackSel_numberOfValidStripTIBHits[nTrackMax];
+Int_t TrackSel_numberOfValidStripTIDHits[nTrackMax];
+Int_t TrackSel_numberOfValidStripTOBHits[nTrackMax];
+Int_t TrackSel_numberOfValidStripTECHits[nTrackMax];
 
 
 //-> PHOTONS
@@ -235,6 +245,26 @@ Int_t GenParticleSel_pdgId[nGenParticleMax];
 const std::string muonPathName = "HLT_DoubleMu43NoFiltersNoVtx_v3"; // default
 Bool_t HLT_DoubleMu43NoFiltersNoVtx_v3;
 
+// -> ELECTRON CANDIDATES
+const Int_t nElectronCandidateMax = 100;
+Int_t nElectronCandidate;
+Float_t ElectronCandidate_pt[nElectronCandidateMax];
+Float_t ElectronCandidate_et[nElectronCandidateMax];
+Float_t ElectronCandidate_eta[nElectronCandidateMax];
+Float_t ElectronCandidate_phi[nElectronCandidateMax];
+Int_t ElectronCandidate_photonIdx[nElectronCandidateMax];
+Int_t ElectronCandidate_trackIdx[nElectronCandidateMax];
+
+
+//-> MUON CANDIDATES
+const Int_t nMuonCandidateMax = 100;
+Int_t nMuonCandidate;
+Float_t MuonCandidate_pt[nMuonCandidateMax];
+Float_t MuonCandidate_eta[nMuonCandidateMax];
+Float_t MuonCandidate_phi[nMuonCandidateMax];
+Int_t MuonCandidate_muonTriggerObjectIdx[nMuonCandidateMax];
+Int_t MuonCandidate_trackIdx[nMuonCandidateMax];
+
 
 /////////////////////////////////////// OUTPUT //////////////////////////////////////
 
@@ -263,6 +293,7 @@ class AODAnalysis : public edm::one::EDAnalyzer<edm::one::SharedResources>  {
 
       edm::EDGetTokenT<edm::View<reco::Vertex> > thePrimaryVertexCollection;
       edm::EDGetTokenT<edm::View<reco::Track> > theGeneralTrackCollection;
+      edm::EDGetTokenT<edm::View<reco::Track> > theDisplacedTrackCollection;
       edm::EDGetTokenT<reco::BeamSpot> theBeamSpot;
       edm::EDGetTokenT<edm::View<reco::Photon> > thePhotonCollection;
       edm::EDGetTokenT<edm::View<reco::GenParticle> >  theGenParticleCollection;
@@ -291,6 +322,7 @@ AODAnalysis::AODAnalysis(const edm::ParameterSet& iConfig)
 
    thePrimaryVertexCollection = consumes<edm::View<reco::Vertex> >  (parameters.getParameter<edm::InputTag>("PrimaryVertexCollection"));
    theGeneralTrackCollection = consumes<edm::View<reco::Track> > (parameters.getParameter<edm::InputTag>("GeneralTrackCollection"));
+   theDisplacedTrackCollection = consumes<edm::View<reco::Track> > (parameters.getParameter<edm::InputTag>("DisplacedTrackCollection"));
    theBeamSpot = consumes<reco::BeamSpot>  (parameters.getParameter<edm::InputTag>("BeamSpot"));
    thePhotonCollection = consumes<edm::View<reco::Photon> > (parameters.getParameter<edm::InputTag>("PhotonCollection"));
    theGenParticleCollection = consumes<edm::View<reco::GenParticle> >  (parameters.getParameter<edm::InputTag>("GenParticleCollection"));
@@ -329,6 +361,7 @@ void AODAnalysis::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetu
    //-> Handle declaration
    edm::Handle<edm::View<reco::Vertex> > primaryVertices;
    edm::Handle<edm::View<reco::Track> > generalTracks;
+   edm::Handle<edm::View<reco::Track> > displacedTracks;
    edm::Handle<reco::BeamSpot> beamSpot;
    edm::Handle<edm::View<reco::Photon> > photons;
    edm::Handle<edm::View<reco::GenParticle> > genParticles;
@@ -336,10 +369,10 @@ void AODAnalysis::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetu
    edm::Handle<edm::TriggerResults> triggerBits;
    edm::Handle<trigger::TriggerEvent> trigSummary;
 
-
    //-> Get by Token from the file
    iEvent.getByToken(thePrimaryVertexCollection, primaryVertices);
    iEvent.getByToken(theGeneralTrackCollection, generalTracks);
+   iEvent.getByToken(theDisplacedTrackCollection, displacedTracks);
    iEvent.getByToken(theBeamSpot, beamSpot);
    iEvent.getByToken(thePhotonCollection, photons);
    iEvent.getByToken(theGenParticleCollection, genParticles);
@@ -366,53 +399,125 @@ void AODAnalysis::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetu
    BeamSpot_BeamWidthY = beamSpotObject.BeamWidthY();
 
 
+
+   ///////////////////////////////// TRACK COLLECTION //////////////////////////////////
+
+   std::vector<reco::Track> trackCollection;
+
+   std::vector<float> displacedPt;
+   std::vector<float> displacedEta;
+   std::vector<float> displacedPhi;
+
+   std::vector<float> allTrackPt; // std vector to sort the tracks by pt
+   std::vector<int> isDisplaced; // 0 for generalTrack collection and 1 for displacedTrack collection
+   std::vector<int> trackIndex; // index of the track to obtain the values
+
+   int nTrackCollection_general = 0;
+   int nTrackCollection_displaced = 0;
+   int nGeneralTrack = generalTracks->size();
+   int nDisplacedTrack = displacedTracks->size();
+
+
+   // Include first the displaced Collection because is a smaller collection (easier to look for overlaps)
+
+   // Loop over displaced tracks collection (include all):
+
+   for (size_t i = 0; i < displacedTracks->size(); i++){
+
+       const reco::Track track = (*displacedTracks)[i];
+
+       trackCollection.push_back(track);
+
+       displacedPt.push_back(track.pt()); displacedEta.push_back(track.eta()); displacedPhi.push_back(track.phi());
+       allTrackPt.push_back(track.pt()); isDisplaced.push_back(1); trackIndex.push_back(i);
+
+       nTrackCollection_displaced++;       
+   }
+
+   // Loop over general tracks collection (skip those that are also in the displaced collection):
+   
+   
+   for (size_t i = 0; i < generalTracks->size(); i++){
+
+       const reco::Track track = (*generalTracks)[i];       
+       
+       if(std::find(displacedPt.begin(), displacedPt.end(), track.pt()) != displacedPt.end() && std::find(displacedEta.begin(), displacedEta.end(), track.eta()) != displacedEta.end() && std::find(displacedPhi.begin(), displacedPhi.end(), track.phi()) != displacedPhi.end()) {
+           continue;
+       }
+       
+
+       trackCollection.push_back(track);
+       allTrackPt.push_back(track.pt()); isDisplaced.push_back(0); trackIndex.push_back(i);
+       nTrackCollection_general++;
+   }
+
+
+   std::vector<int> iTrack; 
+   for (size_t i = 0; i < trackCollection.size(); i++) {iTrack.push_back(i);}
+
+   // sort all tracks by pt
+   std::sort( std::begin(iTrack), std::end(iTrack), [&](int i1, int i2){ return allTrackPt.at(i1) < allTrackPt.at(i2); });
+  // std::sort( std::begin(trackIndex), std::end(trackIndex), [&](int i1, int i2){ return allTrackPt.at(i1) < allTrackPt.at(i2); });
+   //std::sort( std::begin(isDisplaced), std::end(isDisplaced), [&](int i1, int i2){ return allTrackPt.at(i1) < allTrackPt.at(i2); });
+
+
+
    ////////////////////////////////// GENERAL TRACKS //////////////////////////////////
 
    std::vector<int> iT; // track selection indexes
 
-   // Loop over general tracks
-   for (size_t i = 0; i < generalTracks->size(); i++){
+   for (size_t i = 0; i < trackCollection.size(); i++){
 
-       const reco::Track & track = (*generalTracks)[i];
+       reco::Track track = trackCollection.at(i);
 
-       // Check if the track fulfils the preselection requirements
        if (generalTrackPreselection(track)) { iT.push_back(i); }
 
    }
 
 
-   // Sort preselected track indexes by pt
-   std::sort( std::begin(iT), std::end(iT), [&](int i1, int i2){ return generalTracks->at(i1).pt() < generalTracks->at(i2).pt(); });
-
-
    // Loop over the preselected tracks
    for (size_t i = 0; i < iT.size(); i++){
 
-       const reco::Track & track = (*generalTracks)[iT.at(i)];
+       reco::Track track = trackCollection.at(iT.at(i)); // get the track
        
        // Get the variables
        TrackSel_pt[i] = track.pt();
        TrackSel_eta[i] = track.eta();
        TrackSel_phi[i] = track.phi();
        TrackSel_dxy[i] = track.dxy();
+       TrackSel_d0[i] = track.d0();
        TrackSel_dxyError[i] = track.dxyError();
+       TrackSel_d0Error[i] = track.d0Error();
        TrackSel_dz[i] = track.dz();
        TrackSel_dzError[i] = track.dzError();
        TrackSel_vx[i] = track.vx();
        TrackSel_vy[i] = track.vy();
        TrackSel_vz[i] = track.vz(); 
 
+       // Track nature information
+       TrackSel_isDisplaced[i] = isDisplaced.at(iT.at(i));
+       TrackSel_trackIndex[i] = trackIndex.at(iT.at(i));
+
+
        // Hit info
        const reco::HitPattern &hits = track.hitPattern();
 
        TrackSel_numberOfValidTrackerHits[i] = hits.numberOfValidTrackerHits();
        TrackSel_numberOfValidPixelHits[i] = hits.numberOfValidPixelHits();
+       TrackSel_numberOfValidPixelBarrelHits[i] = hits.numberOfValidPixelBarrelHits();
+       TrackSel_numberOfValidPixelEndcapHits[i] = hits.numberOfValidPixelEndcapHits();
+       TrackSel_numberOfValidStripHits[i] = hits.numberOfValidStripHits();
+       TrackSel_numberOfValidStripTIBHits[i] = hits.numberOfValidStripTIBHits();
+       TrackSel_numberOfValidStripTIDHits[i] = hits.numberOfValidStripTIDHits();
+       TrackSel_numberOfValidStripTOBHits[i] = hits.numberOfValidStripTOBHits();
+       TrackSel_numberOfValidStripTECHits[i] = hits.numberOfValidStripTECHits();
 
    }
 
 
    nTrack = iT.size(); // number of selected tracks
-   nTrackOriginal = generalTracks->size(); // original number of general tracks in AOD
+
+
 
 
    ////////////////////////////// PRIMARY VERTEX FEATURES //////////////////////////////
@@ -480,10 +585,11 @@ void AODAnalysis::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetu
    HLT_DoubleMu43NoFiltersNoVtx_v3 = triggerBits->accept(trigNames.triggerIndex(muonPathName));  
 
 
+
    // -> MUON OBJECTS
    std::vector<int> iMT; // muon trigger object indexes
 
-
+   
    // Access the muon objects
    trigger::size_type filterIndex = trigSummary->filterIndex(edm::InputTag("hltL3fL1sMu5EG20orMu20EG15L1f5L2NVf16L3NoFiltersNoVtxFiltered48","", "HLT")); // the filters has to be defined 
    trigger::TriggerObjectCollection triggerObjects = trigSummary->getObjects();
@@ -502,6 +608,7 @@ void AODAnalysis::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetu
 
    }
 
+
    // Sort muon object triggers by pt:
    std::sort(std::begin(iMT), std::end(iMT), [&](int i1, int i2){ return triggerObjects[i1].pt() < triggerObjects[i2].pt(); });
 
@@ -509,7 +616,7 @@ void AODAnalysis::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetu
    // Store the muon trigger objects
    for (size_t i = 0; i < iMT.size(); i++){
 
-       trigger::TriggerObject foundObject = triggerObjects[i];
+       trigger::TriggerObject foundObject = triggerObjects[iMT.at(i)];
 
        MuonTriggerObjectSel_pt[i] = foundObject.pt();
        MuonTriggerObjectSel_eta[i] = foundObject.eta();
@@ -518,7 +625,6 @@ void AODAnalysis::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetu
    }
 
    nMuonTriggerObject = iMT.size(); // number of found muon trigger objects
-
 
 
    //////////////////////////////// GENPARTICLE FEATURES ///////////////////////////////
@@ -564,6 +670,125 @@ void AODAnalysis::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetu
    }
 
    nGenParticle = iGP.size();
+
+
+
+   /////////////////////////////////////////////////////////////////////////////////////
+   /////////////////////////////////// LEPTON CANDIDATES ///////////////////////////////
+   /////////////////////////////////////////////////////////////////////////////////////
+
+   int e = 0; // index of the electron candidate
+   int m = 0; // index of the muon candidate
+   float deltaR_min; // variable ot found the minimum deltaR
+
+   std::vector<int> matched_clusters; // clusted that are already matched
+   std::vector<int> matched_triggerObjects; // trigger that are already matched
+
+   int m_cluster; // cluster saved iterator
+   int m_triggerObject; // trigger saved iterator
+
+
+   // Loop over the track collection to do a lepton matching
+   for (size_t i = 0; i < iT.size(); i++){
+
+       reco::Track track = trackCollection.at(iT.at(i));
+
+       // Matching variables initialization
+       deltaR_min = 10.;
+       m_cluster = -99;
+       m_triggerObject = -99;
+
+
+       // Electron matching (loop over the photons) REVISIT
+       for (size_t jp = 0; jp < iP.size(); jp++){
+
+           const reco::Photon &photon = (*photons)[iP.at(jp)]; // get the photon candidate
+
+           float deltaPhi = fabs(photon.phi() - track.phi());
+           float deltaEta = fabs(photon.eta() - track.eta());
+           float deltaR = sqrt(deltaPhi*deltaPhi + deltaEta*deltaEta);
+
+           if (deltaR < 0.1 && deltaR < deltaR_min){
+
+               m_cluster = jp; // matched cluster
+               deltaR_min = deltaR; // deltaR minimization
+
+           }
+       }
+
+
+       // Muon matching (loop over the muon objects) REVISIT
+       for (size_t jm = 0; jm < iMT.size(); jm++){
+
+           trigger::TriggerObject muonTriggerObject = triggerObjects[iMT.at(jm)];
+
+           float deltaPhi = fabs(muonTriggerObject.phi() - track.phi());
+           float deltaEta = fabs(muonTriggerObject.eta() - track.eta());
+           float deltaR = sqrt(deltaPhi*deltaPhi + deltaEta*deltaEta);
+
+           if (deltaR < 0.1 && deltaR < deltaR_min){
+
+               m_triggerObject = jm; m_cluster = -99; // matched muon object, unmatch photon object
+               deltaR_min = deltaR;
+
+           }
+       }
+
+       
+       // FINAL LEPTON MATCHING
+
+       // Case 0: No clusters or trigger objects are matched
+       if (m_cluster == -99 && m_triggerObject == -99){ continue;}
+
+       // Case 1: Muon candidate found
+       if (m_cluster == -99 && m_triggerObject != -99){
+
+           // Check if the muon is already matched:
+           if(std::find(matched_triggerObjects.begin(), matched_triggerObjects.end(), m_triggerObject) != matched_triggerObjects.end()){ continue; }
+
+           // If not, define the final muon candidate:
+           //trigger::TriggerObject muonTriggerObject = triggerObjects[iMT.at(m_triggerObject)];
+
+           MuonCandidate_pt[m] = track.pt();
+           MuonCandidate_phi[m] = track.phi();
+           MuonCandidate_eta[m] = track.eta();
+           MuonCandidate_muonTriggerObjectIdx[m] = m_triggerObject;
+           MuonCandidate_trackIdx[m] = i;
+
+           matched_triggerObjects.push_back(m_triggerObject); // add it to the list of matched muons
+           m++; // Next muon candidate
+
+           continue;
+       }
+
+       // Case 2: Electron candidate found
+       if (m_cluster != -99 && m_triggerObject == -99){
+
+           // Cherk if the cluster is already matched
+           if(std::find(matched_clusters.begin(), matched_clusters.end(), m_cluster) != matched_clusters.end()){ continue; }
+
+           // If not, define the final electron candidate
+           const reco::Photon photon = (*photons)[iP.at(m_cluster)];
+
+           ElectronCandidate_pt[e] = track.pt();
+           ElectronCandidate_et[e] = photon.et();
+           ElectronCandidate_phi[e] = track.phi();
+           ElectronCandidate_eta[e] = track.eta();
+           ElectronCandidate_photonIdx[e] = m_cluster;
+           ElectronCandidate_trackIdx[e] = i;
+
+           matched_clusters.push_back(m_cluster); // add it to the list of matched electrons
+           e++; // Next electron candidate
+
+       }
+
+   }
+
+
+   nMuonCandidate = m;
+   nElectronCandidate = e;
+
+
 
 
    /////////////////////////////////////////////////////////////////////////////////////
@@ -620,9 +845,6 @@ void AODAnalysis::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetu
 
 
    PV_fittingtracks = refit_tracks.size();
-
-
-   std::cout << "Original PV: " << PV_vx << "\t" << "Refitted_PV: " << RefittedPV_vx << std::endl;
    
    
    /////////////////////////////////////////////////////////////////////////////////////
@@ -672,19 +894,29 @@ void AODAnalysis::beginJob()
     /////////////////////////////// GENERAL TRACK BRANCHES //////////////////////////////
 
     tree_out->Branch("nTrack", &nTrack, "nTrack/I");
-    tree_out->Branch("nTrackOriginal", &nTrackOriginal, "nTrackOriginal/I");
     tree_out->Branch("TrackSel_pt", TrackSel_pt, "TrackSel_pt[nTrack]/F");
     tree_out->Branch("TrackSel_eta", TrackSel_eta, "TrackSel_eta[nTrack]/F");
     tree_out->Branch("TrackSel_phi", TrackSel_phi, "TrackSel_phi[nTrack]/F");
     tree_out->Branch("TrackSel_dxy", TrackSel_dxy, "TrackSel_dxy[nTrack]/F");
     tree_out->Branch("TrackSel_dxyError", TrackSel_dxyError, "TrackSel_dxyError[nTrack]/F");
+    tree_out->Branch("TrackSel_d0", TrackSel_d0, "TrackSel_d0[nTrack]/F");
+    tree_out->Branch("TrackSel_d0Error", TrackSel_d0Error, "TrackSel_d0Error[nTrack]/F");
     tree_out->Branch("TrackSel_dz", TrackSel_dz, "TrackSel_dz[nTrack]/F");
     tree_out->Branch("TrackSel_dzError", TrackSel_dzError, "TrackSel_dzError[nTrack]/F");
     tree_out->Branch("TrackSel_vx", TrackSel_vx, "TrackSel_vx[nTrack]/F");
     tree_out->Branch("TrackSel_vy", TrackSel_vy, "TrackSel_vy[nTrack]/F");
     tree_out->Branch("TrackSel_vz", TrackSel_vz, "TrackSel_vz[nTrack]/F");
+    tree_out->Branch("TrackSel_isDisplaced", TrackSel_isDisplaced, "TrackSel_isDisplaced[nTrack]/I");
+    tree_out->Branch("TrackSel_trackIndex", TrackSel_trackIndex, "TrackSel_trackIndex[nTrack]/I");
     tree_out->Branch("TrackSel_numberOfValidTrackerHits", TrackSel_numberOfValidTrackerHits, "TrackSel_numberOfValidTrackerHits[nTrack]/I");
     tree_out->Branch("TrackSel_numberOfValidPixelHits", TrackSel_numberOfValidPixelHits, "TrackSel_numberOfValidPixelHits[nTrack]/I");
+    tree_out->Branch("TrackSel_numberOfValidPixelBarrelHits", TrackSel_numberOfValidPixelBarrelHits, "TrackSel_numberOfValidPixelBarrelHits[nTrack]/I");
+    tree_out->Branch("TrackSel_numberOfValidPixelEndcapHits", TrackSel_numberOfValidPixelEndcapHits, "TrackSel_numberOfValidPixelEndcapHits[nTrack]/I");
+    tree_out->Branch("TrackSel_numberOfValidStripHits", TrackSel_numberOfValidStripHits, "TrackSel_numberOfValidStripHits[nTrack]/I");
+    tree_out->Branch("TrackSel_numberOfValidStripTIBHits", TrackSel_numberOfValidStripTIBHits, "TrackSel_numberOfValidStripTIBHits[nTrack]/I");
+    tree_out->Branch("TrackSel_numberOfValidStripTIDHits", TrackSel_numberOfValidStripTIDHits, "TrackSel_numberOfValidStripTIDHits[nTrack]/I");
+    tree_out->Branch("TrackSel_numberOfValidStripTOBHits", TrackSel_numberOfValidStripTOBHits, "TrackSel_numberOfValidStripTOBHits[nTrack]/I");
+    tree_out->Branch("TrackSel_numberOfValidStripTECHits", TrackSel_numberOfValidStripTECHits, "TrackSel_numberOfValidStripTECHits[nTrack]/I");
 
 
 
@@ -733,6 +965,28 @@ void AODAnalysis::beginJob()
     ////////////////////////////////// TRIGGER INFORMATION //////////////////////////////
 
     tree_out->Branch("HLT_DoubleMu43NoFiltersNoVtx_v3", &HLT_DoubleMu43NoFiltersNoVtx_v3, "HLT_DoubleMu43NoFiltersNoVtx_v3/O");
+
+
+    //////////////////////////// ELECTRON CANDIDATE BRANCHES ////////////////////////////
+
+    tree_out->Branch("nElectronCandidate", &nElectronCandidate, "nElectronCandidate/I");
+    tree_out->Branch("ElectronCandidate_pt", ElectronCandidate_pt, "ElectronCandidate_pt[nElectronCandidate]/F");
+    tree_out->Branch("ElectronCandidate_et", ElectronCandidate_et, "ElectronCandidate_et[nElectronCandidate]/F");
+    tree_out->Branch("ElectronCandidate_eta", ElectronCandidate_eta, "ElectronCandidate_eta[nElectronCandidate]/F");
+    tree_out->Branch("ElectronCandidate_phi", ElectronCandidate_phi, "ElectronCandidate_phi[nElectronCandidate]/F");
+    tree_out->Branch("ElectronCandidate_photonIdx", ElectronCandidate_photonIdx, "ElectronCandidate_photonIdx[nElectronCandidate]/I");
+    tree_out->Branch("ElectronCandidate_trackIdx", ElectronCandidate_trackIdx, "ElectronCandidate_trackIdx[nElectronCandidate]/I");
+
+
+    ////////////////////////////// MUON CANDIDATE BRANCHES /////////////////////////////
+
+    tree_out->Branch("nMuonCandidate", &nMuonCandidate, "nMuonCandidate/I");
+    tree_out->Branch("MuonCandidate_pt", MuonCandidate_pt, "MuonCandidate_pt[nMuonCandidate]/F");
+    tree_out->Branch("MuonCandidate_eta", MuonCandidate_eta, "MuonCandidate_eta[nMuonCandidate]/F");
+    tree_out->Branch("MuonCandidate_phi", MuonCandidate_phi, "MuonCandidate_phi[nMuonCandidate]/F");
+    tree_out->Branch("MuonCandidate_muonTriggerObjectIdx", MuonCandidate_muonTriggerObjectIdx, "MuonCandidate_muonTriggerObjectIdx[nMuonCandidate]/I");
+    tree_out->Branch("MuonCandidate_trackIdx", MuonCandidate_trackIdx, "MuonCandidate_trackIdx[nMuonCandidate]/I");
+
 
 
     /////////////////////////// REFITTED PRIMARY VERTEX BRANCHES ////////////////////////

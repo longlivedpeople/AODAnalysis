@@ -82,7 +82,29 @@ if __name__ == '__main__':
         leg.SetBorderSize(0)
 
 
-        ## Overlap representation implementation
+        ############# Stacked representation
+
+        Background = ROOT.THStack("Background", "")
+
+        for sam in samples:
+
+            eval('file_input.' + sam + '_' + var) # Access the histogram
+
+            if sam['type'] == 'background':
+
+                h.SetFillColorAlpha(color[sam], 0.3)
+                h.SetLineColorAlpha(ROOT.kBlack, 0.4)
+                h.GetXaxis().SetLabelSize(0.03)
+                h.GetYaxis().SetLabelSize(0.03)
+                h.GetXaxis().SetTitleSize(0.037)
+                h.GetYaxis().SetTitleSize(0.037)
+                h.GetXaxis().SetTitleOffset(1.27)
+                h.GetYaxis().SetTitleOffset(1.4)
+
+                Background.Add(h)
+
+
+        ############# Overlap representation implementation
 
         c = 0
 
